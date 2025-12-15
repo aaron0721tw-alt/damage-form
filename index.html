@@ -1,58 +1,283 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="zh-TW">
 <head>
-  <meta charset="UTF-8">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>產品損壞回報（QR Code）</title>
   <style>
-    body { font-family: Arial, sans-serif; background:#f5f5f5; }
-    .box { background:#fff; padding:20px; margin:40px auto; width:420px; border-radius:8px; }
-    h2 { margin-top:0; }
-    label { display:block; margin-top:12px; }
-    input, select, button {
-      width:100%; padding:8px; margin-top:6px;
+    body { font-family: Arial, sans-serif; background:#f5f5f5; margin:0; }
+    .wrap { max-width: 980px; margin: 28px auto; padding: 0 14px; }
+    .grid { display: grid; grid-template-columns: 1fr 360px; gap: 16px; align-items:start; }
+    @media (max-width: 900px){ .grid{ grid-template-columns: 1fr; } }
+    .card { background:#fff; border-radius:10px; padding:18px; box-shadow: 0 1px 6px rgba(0,0,0,.08); }
+    h2 { margin:0 0 10px; }
+    label { display:block; margin-top:12px; font-size: 14px; }
+    input, select, button, textarea {
+      width:100%; padding:10px; margin-top:6px; box-sizing:border-box;
+      border:1px solid #ddd; border-radius:8px; font-size: 14px;
     }
-    button { margin-top:16px; }
+    button { cursor:pointer; border:0; background:#222; color:#fff; }
+    button.secondary { background:#eee; color:#222; border:1px solid #ddd; }
+    .row { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+    .hint { color:#666; font-size: 12px; margin-top: 6px; }
+    .records { margin-top: 14px; }
+    .rec { border-top:1px solid #eee; padding: 10px 0; display:flex; gap:12px; align-items:flex-start; }
+    .thumb { width: 84px; height: 84px; border-radius:10px; border:1px solid #eee; object-fit: cover; background:#fafafa; }
+    .meta { flex:1; font-size: 13px; color:#333; }
+    .meta b { font-size: 14px; }
+    .btns { display:flex; gap:10px; margin-top: 10px; }
+    .btns button { flex:1; }
+    .topline { display:flex; justify-content:space-between; align-items:baseline; gap:10px; }
+    code { background:#f2f2f2; padding:2px 6px; border-radius:6px; }
   </style>
 </head>
 <body>
+  <div class="wrap">
+    <div class="topline">
+      <h2>產品損壞回報（QR Code）</h2>
+      <div class="hint">同一份檔案同時支援：①你(管理/匯出) ②教授(掃碼填寫)</div>
+    </div>
 
-<div class="box">
-  <h2>產品損壞回報（QR Code）</h2>
+    <div class="grid">
+      <!-- 左：填寫表單 -->
+      <div class="card">
+        <form id="damageForm">
+          <div class="row">
+            <div>
+              <label>填寫人
+                <input type="text" id="user" placeholder="教授姓名" required>
+              </label>
+            </div>
+            <div>
+              <label>日期
+                <input type="date" id="date" required>
+              </label>
+            </div>
+          </div>
 
-  <form id="damageForm">
-    <label>填寫人
-      <input type="text" id="user" required>
-    </label>
+          <label>材料 / 產品編號
+            <input type="text" id="pid" placeholder="掃 QR 會自動帶入；沒掃也可手動輸入" required>
+          </label>
 
-    <label>日期
-      <input type="date" id="date" required>
-    </label>
+          <div class="row">
+            <div>
+              <label>數量
+                <input type="number" id="qty" min="1" step="1" value="1" required>
+              </label>
+            </div>
+            <div>
+              <label>是否損壞
+                <select id="status" required>
+                  <option value="良好">良好</option>
+                  <option value="損壞">損壞</option>
+                </select>
+              </label>
+            </div>
+          </div>
 
-    <label>材料 / 產品編號
-      <input type="text" id="pid" readonly>
-    </label>
+          <label>照片（可拍照或上傳）
+            <!-- capture=environment：手機通常會開後鏡頭 -->
+            <input type="file" id="photo" accept="image/*" capture="environment">
+            <div class="hint">照片會先存於「填寫那台裝置」的瀏覽器。若要集中到你這邊，需要改成 Google Drive/Sheet 版。</div>
+          </label>
 
-    <label>是否損壞
-      <select id="status">
-        <option value="良好">良好</option>
-        <option value="損壞">損壞</option>
-      </select>
-    </label>
+          <div class="btns">
+            <button type="submit">送出回報</button>
+            <button type="button" class="secondary" id="btnReset">清空本次輸入</button>
+          </div>
+        </form>
+      </div>
 
-    <button type="submit">送出回報</button>
-  </form>
-</div>
+      <!-- 右：管理/匯出 -->
+      <div class="card">
+        <b>紀錄（本機保存）</b>
+        <div class="hint">重新整理不會消失（localStorage）。</div>
+
+        <div class="btns" style="margin-top:12px;">
+          <button type="button" id="btnCsv">匯出 CSV</button>
+          <button type="button" id="btnJson" class="secondary">匯出 JSON（含照片）</button>
+        </div>
+        <div class="btns">
+          <button type="button" id="btnClear" class="secondary">清空紀錄</button>
+        </div>
+
+        <div class="hint" style="margin-top:10px;">
+          如果你要「所有教授的資料/照片都集中到你」：我可以幫你改成 <code>Google Sheet + Drive</code> 版本。
+        </div>
+      </div>
+    </div>
+
+    <!-- 下：紀錄列表 -->
+    <div class="card records">
+      <b>已填紀錄</b>
+      <div id="list" class="hint" style="margin-top:8px;">（尚無紀錄）</div>
+    </div>
+  </div>
 
 <script>
-  const params = new URLSearchParams(location.search);
-  const pid = params.get("pid") || "";
-  document.getElementById("pid").value = pid;
+  const STORAGE_KEY = "damage_records_v1";
 
-  document.getElementById("damageForm").addEventListener("submit", e => {
+  const $ = (id) => document.getElementById(id);
+
+  function loadRecords(){
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]"); }
+    catch { return []; }
+  }
+  function saveRecords(arr){
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(arr));
+  }
+
+  function ymdToday(){
+    const d = new Date();
+    const m = String(d.getMonth()+1).padStart(2,"0");
+    const day = String(d.getDate()).padStart(2,"0");
+    return `${d.getFullYear()}-${m}-${day}`;
+  }
+
+  function getPidFromUrl(){
+    const params = new URLSearchParams(location.search);
+    return (params.get("pid") || "").trim();
+  }
+
+  function render(){
+    const list = $("list");
+    const records = loadRecords();
+    if(records.length === 0){
+      list.innerHTML = "（尚無紀錄）";
+      return;
+    }
+    list.innerHTML = records.slice().reverse().map(r => {
+      const img = r.photoDataUrl ? <img class="thumb" src="${r.photoDataUrl}" /> : `<div class="thumb"></div>`;
+      return `
+        <div class="rec">
+          ${img}
+          <div class="meta">
+            <b>${escapeHtml(r.pid)}</b> × ${escapeHtml(String(r.qty))}
+            <div>狀態：${escapeHtml(r.status)}</div>
+            <div>填寫人：${escapeHtml(r.user)}｜日期：${escapeHtml(r.date)}</div>
+            <div class="hint">時間戳：${escapeHtml(r.ts)}</div>
+          </div>
+        </div>
+      `;
+    }).join("");
+  }
+
+  function escapeHtml(s){
+    return String(s).replace(/[&<>"']/g, c => ({
+      "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"
+    }[c]));
+  }
+
+  // 把 File 轉成 base64 DataURL（方便存 localStorage / JSON）
+  function fileToDataUrl(file){
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result);
+      reader.onerror = reject;
+      reader.readAsDataURL(file);
+    });
+  }
+
+  // 匯出 CSV（不含照片，避免檔案爆大）
+  function exportCsv(){
+    const records = loadRecords();
+    const header = ["ts","user","date","pid","qty","status"];
+    const rows = records.map(r => header.map(k => {
+      const v = (r[k] ?? "");
+      const s = String(v).replace(/"/g,'""');
+      return `"${s}"`;
+    }).join(","));
+    const csv = [header.join(","), ...rows].join("\n");
+    downloadFile(`damage_records_${Date.now()}.csv`, csv, "text/csv;charset=utf-8");
+  }
+
+  // 匯出 JSON（含照片 dataURL）
+  function exportJson(){
+    const records = loadRecords();
+    const json = JSON.stringify(records, null, 2);
+    downloadFile(`damage_records_${Date.now()}.json`, json, "application/json;charset=utf-8");
+  }
+
+  function downloadFile(filename, content, mime){
+    const blob = new Blob([content], {type: mime});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  }
+
+  // 初始化表單
+  (function init(){
+    $("date").value = ymdToday();
+
+    const pidFromUrl = getPidFromUrl();
+    if(pidFromUrl){
+      $("pid").value = pidFromUrl;
+      $("pid").readOnly = true;   // 有掃碼就鎖住
+    } else {
+      $("pid").readOnly = false;  // 沒掃碼可手打
+    }
+
+    render();
+  })();
+
+  $("btnReset").addEventListener("click", () => {
+    $("user").value = "";
+    $("date").value = ymdToday();
+    $("qty").value = 1;
+    $("status").value = "良好";
+    $("photo").value = "";
+    // pid 不動（有掃碼就固定；沒掃碼自己留著也可）
+  });
+
+  $("damageForm").addEventListener("submit", async (e) => {
     e.preventDefault();
-    alert("回報完成！");
+
+    const user = $("user").value.trim();
+    const date = $("date").value;
+    const pid = $("pid").value.trim();
+    const qty = Number($("qty").value);
+    const status = $("status").value;
+
+    if(!user || !date || !pid || !Number.isFinite(qty) || qty < 1){
+      alert("請把欄位填完整（數量需 ≥ 1）");
+      return;
+    }
+
+    // 照片（可選）
+    let photoDataUrl = "";
+    const file = $("photo").files && $("photo").files[0];
+    if(file){
+      // 注意：localStorage 有容量限制，建議照片不要太大
+      photoDataUrl = await fileToDataUrl(file);
+      // 如果你擔心容量爆掉：我可以再幫你加「自動壓縮照片」版本
+    }
+
+    const ts = new Date().toISOString();
+    const record = { ts, user, date, pid, qty, status, photoDataUrl };
+
+    const records = loadRecords();
+    records.push(record);
+    saveRecords(records);
+
+    alert("回報完成！已存入本機紀錄。");
+    $("photo").value = "";
+    render();
+  });
+
+  $("btnCsv").addEventListener("click", exportCsv);
+  $("btnJson").addEventListener("click", exportJson);
+
+  $("btnClear").addEventListener("click", () => {
+    if(confirm("確定要清空所有紀錄嗎？")){
+      localStorage.removeItem(STORAGE_KEY);
+      render();
+    }
   });
 </script>
-
 </body>
 </html>
