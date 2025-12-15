@@ -1,101 +1,201 @@
-<!DOCTYPE html>
-<html lang="zh-TW">
+<!doctype html>
+<html lang="zh-Hant">
 <head>
-<meta charset="UTF-8">
-<title>產品損壞回報（QR Code）</title>
-<style>
-body { font-family: system-ui; background:#f5f5f5; }
-.box { max-width:700px; margin:40px auto; background:#fff; padding:20px; border-radius:8px; }
-label { display:block; margin-top:12px; }
-input, select, textarea, button {
-  width:100%; padding:8px; margin-top:4px;
-}
-button { margin-top:16px; }
-</style>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>產品損壞回報</title>
+  <style>
+    body{font-family:system-ui,-apple-system,"Noto Sans TC",Arial,sans-serif;background:#f6f6f6;margin:0}
+    .wrap{max-width:780px;margin:28px auto;padding:16px}
+    .card{background:#fff;border-radius:12px;padding:18px;box-shadow:0 6px 20px rgba(0,0,0,.08)}
+    h1{margin:0 0 10px;font-size:20px}
+    .hint{color:#666;font-size:12px;margin:6px 0 0}
+    label{display:block;margin-top:12px;font-weight:700;font-size:14px}
+    input,select,textarea,button{width:100%;box-sizing:border-box;margin-top:6px;padding:10px;border:1px solid #ddd;border-radius:10px;font-size:14px}
+    textarea{min-height:90px;resize:vertical}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .btns{display:flex;gap:10px;margin-top:14px}
+    button{cursor:pointer;border:0;font-weight:800}
+    .primary{background:#2563eb;color:#fff}
+    .ghost{background:#e5e7eb}
+    .msg{margin-top:12px;font-size:14px}
+    .ok{color:#0f766e}
+    .err{color:#b91c1c}
+    code{background:#f1f1f1;padding:2px 6px;border-radius:6px}
+  </style>
 </head>
-
 <body>
-<div class="box">
-<h2>產品損壞回報（QR Code）</h2>
+  <div class="wrap">
+    <div class="card">
+      <h1>產品損壞回報</h1>
+      <div class="hint">掃 QR 可帶入產品編號：<code>?pid=MAT-001</code>（也可手動輸入）。</div>
 
-<label>姓名</label>
-<input id="user" placeholder="請輸入姓名">
+      <form id="f">
+        <label>姓名</label>
+        <input id="name" required placeholder="請輸入姓名" />
 
-<label>日期</label>
-<input id="date" type="date">
+        <div class="row">
+          <div>
+            <label>日期</label>
+            <input id="date" type="date" required />
+          </div>
+          <div>
+            <label>數量</label>
+            <input id="qty" type="number" min="1" value="1" required />
+          </div>
+        </div>
 
-<label>數量</label>
-<input id="qty" type="number" value="1" min="1">
+        <label>產品編號</label>
+        <input id="pid" required placeholder="例如：MAT-001" />
 
-<label>產品編號（可手打 / QR 帶入）</label>
-<input id="pid" placeholder="MAT-001">
+        <label>材料是否良好</label>
+        <select id="status" required>
+          <option value="">請選擇</option>
+          <option value="良好">良好</option>
+          <option value="損壞">損壞</option>
+        </select>
 
-<label>材料是否良好</label>
-<select id="status">
-  <option value="良好">良好</option>
-  <option value="損壞">損壞</option>
-</select>
+        <label>備註（可選）</label>
+        <textarea id="note" placeholder="例如：刮傷、掉漆、缺件…"></textarea>
 
-<label>備註（可選）</label>
-<textarea id="note" placeholder="例如：刮傷、掉漆、缺件"></textarea>
+        <label>照片（可選）</label>
+        <input id="photo" type="file" accept="image/*" capture="environment" />
+        <div class="hint">會自動壓縮成 JPEG，避免照片太大導致送出失敗。</div>
 
-<label>照片（可選）</label>
-<input id="photo" type="file" accept="image/*">
+        <div class="btns">
+          <button class="primary" type="submit">送出</button>
+          <button class="ghost" type="button" id="reset">清空</button>
+        </div>
 
-<button onclick="submitForm()">送出</button>
-<p id="msg"></p>
-</div>
+        <div id="msg" class="msg"></div>
+      </form>
+    </div>
+  </div>
 
 <script>
-// ===== 改成你自己的 Apps Script /exec 網址 =====
-<script>
-<script>
-const WEB_APP_URL = "https://script.google.com/macros/s/AKfycbx6YGANUmrv9EcqRlX8iMr7ZpwVsxgJ64IiCmlCM8eDdx-ijsS8cAjbdD80AV-iQRX-pw/exec";
+  // ✅ 把這行改成你 Apps Script 部署後的 /exec
+  const WEB_APP_URL = "https://script.google.com/macros/s/你的ID/exec";
 
-document.getElementById("photo").addEventListener("change", e => {
-  const file = e.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = () => photoBase64 = reader.result;
-  reader.readAsDataURL(file);
-});
+  const $ = (id) => document.getElementById(id);
+  const msg = $("msg");
 
-// QR code 帶入 pid
-const params = new URLSearchParams(location.search);
-if (params.get("pid")) {
-  document.getElementById("pid").value = params.get("pid");
-}
+  function setMsg(text, ok=true){
+    msg.textContent = text;
+    msg.className = "msg " + (ok ? "ok" : "err");
+  }
 
-async function submitForm() {
-  document.getElementById("msg").innerText = "送出中...";
+  // 今日日期預設
+  (function initDate(){
+    const d = new Date();
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth()+1).padStart(2,"0");
+    const dd = String(d.getDate()).padStart(2,"0");
+    $("date").value = `${yyyy}-${mm}-${dd}`;
+  })();
 
-  const data = {
-    user: user.value,
-    date: date.value,
-    pid: pid.value,
-    qty: qty.value,
-    status: status.value,
-    note: note.value,
-    photoDataUrl: photoBase64
-  };
+  // 讀 URL pid
+  (function initPid(){
+    const u = new URL(location.href);
+    const pid = u.searchParams.get("pid");
+    if(pid) $("pid").value = pid;
+  })();
 
-  try {
+  $("reset").addEventListener("click", () => {
+    $("f").reset();
+    msg.textContent = "";
+    msg.className = "msg";
+    const d = new Date();
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth()+1).padStart(2,"0");
+    const dd = String(d.getDate()).padStart(2,"0");
+    $("date").value = `${yyyy}-${mm}-${dd}`;
+    // pid 若有帶入就保留也行，你想清掉就加： $("pid").value="";
+  });
+
+  // 照片壓縮成 JPEG dataURL（避免 payload 太大）
+  async function compressToJpegDataUrl(file, maxW=1280, quality=0.75){
+    if(!file) return "";
+
+    const dataUrl = await new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(r.result);
+      r.onerror = reject;
+      r.readAsDataURL(file);
+    });
+
+    const img = await new Promise((resolve, reject) => {
+      const i = new Image();
+      i.onload = () => resolve(i);
+      i.onerror = reject;
+      i.src = dataUrl;
+    });
+
+    let w = img.width, h = img.height;
+    if(w > maxW){
+      const s = maxW / w;
+      w = Math.round(w*s);
+      h = Math.round(h*s);
+    }
+
+    const c = document.createElement("canvas");
+    c.width = w; c.height = h;
+    c.getContext("2d").drawImage(img, 0, 0, w, h);
+
+    return c.toDataURL("image/jpeg", quality);
+  }
+
+  // 送出：不設定 headers，讓它用 text/plain，避免 CORS/預檢
+  async function postToWebApp(payload){
     const res = await fetch(WEB_APP_URL, {
       method: "POST",
-      body: JSON.stringify(data)
+      body: JSON.stringify(payload)
     });
-    const json = await res.json();
-    document.getElementById("msg").innerText =
-      json.ok ? "✅ 送出成功" : "❌ 送出失敗：" + json.error;
-  } catch (e) {
-    document.getElementById("msg").innerText = "❌ 網路錯誤";
+
+    const text = await res.text();
+    let obj = {};
+    try { obj = JSON.parse(text); } catch(e) { obj = { ok:false, error:text }; }
+    return obj;
   }
-}
+
+  $("f").addEventListener("submit", async (e) => {
+    e.preventDefault();
+
+    const name = $("name").value.trim();
+    const date = $("date").value;
+    const pid  = $("pid").value.trim();
+    const qty  = Number($("qty").value);
+    const status = $("status").value;
+    const note = $("note").value.trim();
+
+    if(!name || !date || !pid || !Number.isFinite(qty) || qty < 1 || !status){
+      setMsg("請填完整：姓名/日期/產品編號/數量(>=1)/狀態", false);
+      return;
+    }
+
+    setMsg("送出中…", true);
+
+    try{
+      const file = $("photo").files?.[0];
+      const photoDataUrl = await compressToJpegDataUrl(file);
+
+      const payload = { name, date, pid, qty, status, note, photoDataUrl };
+      const out = await postToWebApp(payload);
+
+      if(!out.ok){
+        setMsg("送出失敗：" + (out.error || "unknown"), false);
+        return;
+      }
+
+      setMsg("✅ 送出成功！（已寫入 Google Sheet）" + (out.photoUrl ? " 照片已上傳" : ""), true);
+      $("qty").value = 1;
+      $("status").value = "";
+      $("note").value = "";
+      $("photo").value = "";
+
+    }catch(err){
+      setMsg("送出失敗（例外）："+ String(err), false);
+    }
+  });
 </script>
 </body>
 </html>
-
-
-
-
-
