@@ -1,0 +1,298 @@
+<!doctype html>
+<html lang="zh-TW">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>產品損壞回報（QR）</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Arial; padding: 16px; }
+    .container { max-width: 780px; margin: 0 auto; }
+    .card { border: 1px solid #ddd; border-radius: 12px; padding: 14px; margin: 12px 0; }
+    input, select, textarea, button { width: 100%; padding: 10px; font-size: 16px; box-sizing: border-box; }
+    button { cursor: pointer; }
+    .row { display:flex; gap:10px; }
+    .row > div { flex: 1; }
+    .muted { color:#666; font-size:14px; }
+    .danger { color:#b00020; }
+    .thumbs { display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; }
+    .thumbs img { width:120px; height:120px; object-fit:cover; border-radius:10px; border:1px solid #ddd; }
+    .record { border-top:1px dashed #bbb; padding-top:10px; margin-top:10px; }
+    #qrcode { display:flex; justify-content:center; margin-top: 10px; }
+    .pill { display:inline-block; padding:4px 10px; border-radius:999px; background:#f2f2f2; }
+  </style>
+</head>
+<body>
+<div class="container">
+  <h2>產品損壞回報（QR Code）</h2>
+  <div class="muted">同一份檔案同時支援：①你產生 QR ②教授掃碼填表</div>
+
+  <!-- 產生 QR 模式 -->
+  <div id="modeGenerator" class="card" style="display:none;">
+    <h3>模式 A：產生 QRCode（你用）</h3>
+    <div class="row">
+      <div>
+        <label>產品編號</label>
+        <input id="pidInput" placeholder="例如：MAT-000123 / TOOL-45" />
+      </div>
+      <div>
+        <label>日期（可選）</label>
+        <input id="defaultDate" type="date" />
+      </div>
+    </div>
+    <button id="genBtn">生成 QRCode</button>
+    <div class="muted">教授掃描後會打開表單，並自動帶入產品編號。</div>
+
+    <div id="qrcode"></div>
+    <div id="linkBox" class="muted" style="word-break:break-all; margin-top:10px;"></div>
+  </div>
+
+  <!-- 填表模式 -->
+  <div id="modeForm" class="card" style="display:none;">
+    <h3>模式 B：教授填寫（掃碼後進入）</h3>
+    <div class="muted">產品編號：<span class="pill" id="pidShow">-</span></div>
+
+    <label style="margin-top:10px;">填寫人（教授姓名）</label>
+    <input id="name" placeholder="請輸入姓名" />
+
+    <label>日期</label>
+    <input id="date" type="date" />
+
+    <label>是否損壞</label>
+    <select id="damage">
+      <option value="">請選擇</option>
+      <option value="良好">良好</option>
+      <option value="損壞">損壞</option>
+    </select>
+
+    <!-- 損壞才顯示 -->
+    <div id="damageExtra" style="display:none; margin-top:10px;">
+      <label class="danger">損壞原因 / 描述</label>
+      <textarea id="desc" rows="3" placeholder="例如：裂痕、刮傷、變形、失效..."></textarea>
+
+      <label class="danger">上傳照片（可拍照/選擇）</label>
+      <input id="photos" type="file" accept="image/*" capture="environment" multiple />
+      <div id="photoPreview" class="thumbs"></div>
+      <div class="muted">照片會暫存於瀏覽器（localStorage 容量有限，建議 1–3 張）。</div>
+    </div>
+
+    <button id="submitBtn" style="margin-top:10px;">送出</button>
+    <div id="submitMsg" class="muted" style="margin-top:8px;"></div>
+  </div>
+
+  <!-- 紀錄 -->
+  <div class="card">
+    <div class="row" style="align-items:center;">
+      <div>
+        <h3 style="margin:0;">紀錄（本機保存）</h3>
+        <div class="muted">重整頁面不會消失（localStorage）。</div>
+      </div>
+      <div style="text-align:right;">
+        <button id="exportBtn">匯出 CSV</button>
+        <button id="clearBtn" style="margin-top:8px;">清空紀錄</button>
+      </div>
+    </div>
+    <div id="recordsHint" class="muted">（尚無紀錄）</div>
+    <div id="records"></div>
+  </div>
+</div>
+
+<!-- QR 產生用：qrcodejs -->
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+<script>
+  const STORAGE_KEY = "damage_reports_v1";
+
+  const qs = new URLSearchParams(location.search);
+  const pid = (qs.get("pid") || "").trim();
+  const presetDate = (qs.get("d") || "").trim(); // 可選：預帶日期
+
+  const modeGenerator = document.getElementById("modeGenerator");
+  const modeForm = document.getElementById("modeForm");
+
+  const pidShow = document.getElementById("pidShow");
+  const nameEl = document.getElementById("name");
+  const dateEl = document.getElementById("date");
+  const damageEl = document.getElementById("damage");
+  const damageExtra = document.getElementById("damageExtra");
+  const descEl = document.getElementById("desc");
+  const photosEl = document.getElementById("photos");
+  const photoPreview = document.getElementById("photoPreview");
+  const submitMsg = document.getElementById("submitMsg");
+
+  const recordsHint = document.getElementById("recordsHint");
+  const recordsBox = document.getElementById("records");
+  const exportBtn = document.getElementById("exportBtn");
+  const clearBtn = document.getElementById("clearBtn");
+
+  // ========== 小工具 ==========
+  function todayStr(){
+    const t = new Date();
+    const y = t.getFullYear();
+    const m = String(t.getMonth()+1).padStart(2,"0");
+    const d = String(t.getDate()).padStart(2,"0");
+    return `${y}-${m}-${d}`;
+  }
+  function escapeHtml(s){
+    return String(s).replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;");
+  }
+  function loadRecords(){
+    try {
+      return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+    } catch { return []; }
+  }
+  function saveRecords(arr){
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(arr));
+  }
+
+  // ========== 模式切換 ==========
+  if (pid) {
+    // 填表模式
+    modeForm.style.display = "block";
+    pidShow.textContent = pid;
+
+    dateEl.value = presetDate || todayStr();
+  } else {
+    // 產生 QR 模式
+    modeGenerator.style.display = "block";
+    document.getElementById("defaultDate").value = todayStr();
+  }
+
+  // ========== 損壞欄位顯示 ==========
+  let selectedPhotoDataUrls = [];
+  function resetPhotos(){
+    selectedPhotoDataUrls = [];
+    photosEl.value = "";
+    photoPreview.innerHTML = "";
+  }
+  damageEl?.addEventListener("change", () => {
+    if (damageEl.value === "損壞") {
+      damageExtra.style.display = "block";
+    } else {
+      damageExtra.style.display = "none";
+      descEl.value = "";
+      resetPhotos();
+    }
+  });
+
+  // ========== 照片預覽&保存（dataURL） ==========
+  function fileToDataUrl(file){
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(r.result);
+      r.onerror = reject;
+      r.readAsDataURL(file);
+    });
+  }
+  photosEl?.addEventListener("change", async () => {
+    selectedPhotoDataUrls = [];
+    photoPreview.innerHTML = "";
+
+    const files = Array.from(photosEl.files || []).slice(0, 3);
+    for (const f of files) {
+      const dataUrl = await fileToDataUrl(f);
+      selectedPhotoDataUrls.push(dataUrl);
+      const img = document.createElement("img");
+      img.src = dataUrl;
+      photoPreview.appendChild(img);
+    }
+  });
+
+  // ========== 送出 ==========
+  document.getElementById("submitBtn")?.addEventListener("click", () => {
+    const who = (nameEl.value || "").trim();
+    const d = (dateEl.value || "").trim();
+    const status = (damageEl.value || "").trim();
+    const description = (descEl.value || "").trim();
+
+    if (!pid) return alert("缺少產品編號（pid）。請用 QRCode 掃描進入。");
+    if (!who) return alert("請填寫姓名");
+    if (!d) return alert("請選日期");
+    if (!status) return alert("請選是否損壞");
+    if (status === "損壞" && !description) return alert("損壞請填寫原因/描述");
+
+    const rec = {
+      product_id: pid,
+      name: who,
+      date: d,
+      status,
+      desc: status === "損壞" ? description : "",
+      photos: status === "損壞" ? selectedPhotoDataUrls : [],
+      created_at: new Date().toLocaleString()
+    };
+
+    const records = loadRecords();
+    try {
+      records.push(rec);
+      saveRecords(records);
+    } catch (e) {
+      alert("儲存失敗：可能照片太大超過瀏覽器容量。請減少照片或改成後端儲存。");
+      return;
+    }
+
+    submitMsg.textContent = "✅ 已送出並保存（本機）";
+    renderRecords();
+
+    // 送出後清空部分欄位（方便下一筆）
+    // 注意：產品編號保持不變
+    damageEl.value = "";
+    damageExtra.style.display = "none";
+    descEl.value = "";
+    resetPhotos();
+  });
+
+  // ========== 產生 QR ==========
+  document.getElementById("genBtn")?.addEventListener("click", () => {
+    const pidVal = (document.getElementById("pidInput").value || "").trim();
+    const dVal = (document.getElementById("defaultDate").value || "").trim();
+    if (!pidVal) return alert("請輸入產品編號");
+
+    // 這裡假設你會把 index.html 放在某個網址，掃到才打得開
+    // 如果你已經部署到網址，這裡會自動用目前頁面的網址當 base
+    const base = location.origin + location.pathname;
+    const url = `${base}?pid=${encodeURIComponent(pidVal)}&d=${encodeURIComponent(dVal)}`;
+
+    // 顯示連結
+    document.getElementById("linkBox").textContent = "表單網址（QR 內容）：" + url;
+
+    // 產生 QR
+    const box = document.getElementById("qrcode");
+    box.innerHTML = "";
+    new QRCode(box, { text: url, width: 220, height: 220 });
+  });
+
+  // ========== 紀錄渲染 ==========
+  function renderRecords(){
+    const records = loadRecords();
+    recordsBox.innerHTML = "";
+    if (!records.length) {
+      recordsHint.style.display = "block";
+      return;
+    }
+    recordsHint.style.display = "none";
+
+    // 新到舊
+    [...records].reverse().forEach(r => {
+      const photosHtml = (r.photos && r.photos.length)
+        ? `<div class="thumbs">${r.photos.map(p => `<img src="${p}" alt="photo">`).join("")}</div>`
+        : "";
+      recordsBox.innerHTML += `
+        <div class="record">
+          <div class="muted">建立時間：${escapeHtml(r.created_at)}</div>
+          <p><strong>產品編號：</strong>${escapeHtml(r.product_id)}</p>
+          <p><strong>姓名：</strong>${escapeHtml(r.name)}</p>
+          <p><strong>日期：</strong>${escapeHtml(r.date)}</p>
+          <p><strong>狀態：</strong>${escapeHtml(r.status)}</p>
+          ${r.status === "損壞" ? <p class="danger"><strong>描述：</strong>${escapeHtml(r.desc || "-")}</p> : ""}
+          ${r.status === "損壞" ? photosHtml : ""}
+        </div>
+      `;
+    });
+  }
+  renderRecords();
+
+  // ========== 匯出 CSV ==========
+  exportBtn.addEventListener("click", () => {
+    const records = loadRecords();
+    if (!records.length) return alert("沒有紀錄可匯出");
+
+    const header = ["created_at","date","name","product_id","status","desc","photo_count"];
+    con
